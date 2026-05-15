@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 from catastro import get_full_cadastral_data
-from geocoder import geocode_address, reverse_geocode
+from geolocator import geocode_address, reverse_geocode
 from generator import generate_ficha
 from pdf_export import generate_pdf
 from pgoum import get_pgoum_data

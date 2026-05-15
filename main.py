@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 
-from geocoder import geocode_address
+from geolocator import geocode_address
 from catastro import get_full_cadastral_data
 from pgoum import get_pgoum_data
 from generator import generate_ficha
