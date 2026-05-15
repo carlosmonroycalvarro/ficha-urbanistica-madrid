@@ -213,6 +213,16 @@ def get_parcel_surfaces(refcat: str) -> dict:
                 result["centroid_lon"] = float(parts[1])
             except (IndexError, ValueError):
                 pass
+        # Polígono de la parcela: posList tiene pares "lat lon lat lon ..."
+        if localname == "posList" and "parcel_polygon" not in result:
+            try:
+                nums = list(map(float, elem.text.strip().split()))
+                # pares (lat, lon)
+                coords = [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
+                if len(coords) >= 3:
+                    result["parcel_polygon"] = coords
+            except (ValueError, IndexError):
+                pass
 
     return result
 

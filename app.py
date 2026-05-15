@@ -43,7 +43,8 @@ st.markdown("""
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _build_map(lat: float, lon: float, zoom: int = 17,
-               style: str = "Satélite (Google)", marker: bool = False) -> folium.Map:
+               style: str = "Satélite (Google)", marker: bool = False,
+               polygon: list = None) -> folium.Map:
     tiles = {
         "Satélite (Google)": ("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", "Google Satellite"),
         "Híbrido (Google)":  ("https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", "Google Hybrid"),
@@ -52,23 +53,44 @@ def _build_map(lat: float, lon: float, zoom: int = 17,
     tile_url, attr = tiles.get(style, tiles["Satélite (Google)"])
     m = folium.Map(location=[lat, lon], zoom_start=zoom, tiles=None)
     folium.TileLayer(tiles=tile_url, attr=attr, name=style, max_zoom=21).add_to(m)
-    if marker:
+
+    # Polígono de parcela (prioridad sobre el marcador simple)
+    if polygon and len(polygon) >= 3:
+        folium.Polygon(
+            locations=polygon,
+            color="#FF4500",
+            weight=3,
+            fill=True,
+            fill_color="#FF4500",
+            fill_opacity=0.20,
+            popup=folium.Popup(st.session_state.get("result_address", ""), max_width=220),
+        ).add_to(m)
+        # Icono centrado en el polígono
         folium.Marker(
             location=[lat, lon],
             popup=folium.Popup(st.session_state.get("result_address", ""), max_width=220),
-            icon=folium.Icon(color="red", icon="home"),
+            icon=folium.Icon(color="red", icon="home", prefix="fa"),
         ).add_to(m)
-    # Instrucción visual al usuario
-    folium.map.Marker(
-        [lat + 0.0012, lon],
-        icon=folium.DivIcon(
-            html='<div style="font-size:12px;background:rgba(255,255,255,0.85);'
-                 'padding:3px 7px;border-radius:4px;white-space:nowrap;">'
-                 '📍 Haz clic en el mapa para seleccionar una parcela</div>',
-            icon_size=(280, 24),
-            icon_anchor=(140, 12),
-        ),
-    ).add_to(m)
+    elif marker:
+        folium.Marker(
+            location=[lat, lon],
+            popup=folium.Popup(st.session_state.get("result_address", ""), max_width=220),
+            icon=folium.Icon(color="red", icon="home", prefix="fa"),
+        ).add_to(m)
+
+    # Instrucción visual al usuario (solo en vista búsqueda)
+    if not marker and not polygon:
+        folium.map.Marker(
+            [lat + 0.0012, lon],
+            icon=folium.DivIcon(
+                html='<div style="font-size:12px;background:rgba(255,255,255,0.85);'
+                     'padding:3px 7px;border-radius:4px;white-space:nowrap;">'
+                     '📍 Haz clic en el mapa para seleccionar una parcela</div>',
+                icon_size=(280, 24),
+                icon_anchor=(140, 12),
+            ),
+        ).add_to(m)
+
     folium.LayerControl().add_to(m)
     return m
 
@@ -183,6 +205,17 @@ if st.session_state.view == "search":
     map_center_lat = st.session_state.get("result_lat", 40.4168)
     map_center_lon = st.session_state.get("result_lon", -3.7038)
     m = _build_map(map_center_lat, map_center_lon, zoom=13, style=st.session_state.map_style)
+    # Mostrar punto seleccionado provisionalmente mientras no se ha enviado la consulta
+    if st.session_state.clicked_lat:
+        folium.CircleMarker(
+            location=[st.session_state.clicked_lat, st.session_state.clicked_lon],
+            radius=10,
+            color="#FF4500",
+            fill=True,
+            fill_color="#FF4500",
+            fill_opacity=0.6,
+            popup=st.session_state.clicked_address or "Punto seleccionado",
+        ).add_to(m)
     map_data = st_folium(m, height=450, use_container_width=True, returned_objects=["last_clicked"])
 
     # Procesar clic en el mapa
@@ -291,7 +324,9 @@ elif st.session_state.view == "result":
             st.caption(f"Dotación: {pgoum['denominacion_dotacion']}")
 
     with col_mapa:
-        m2 = _build_map(lat, lon, zoom=18, style=st.session_state.map_style, marker=True)
+        polygon = cat.get("parcel_polygon")
+        m2 = _build_map(lat, lon, zoom=18, style=st.session_state.map_style,
+                        marker=True, polygon=polygon)
         st_folium(m2, height=420, use_container_width=True, returned_objects=[])
 
     # ── Cédula urbanística ────────────────────────────────────────────
