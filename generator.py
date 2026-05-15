@@ -158,7 +158,10 @@ def generate_ficha(cadastral: dict, pgoum: dict, address: str = "") -> str:
 def _fetch_normas(pgoum: dict) -> str:
     try:
         from notebooklm_query import query_compendio
-        zona = pgoum.get("zona_denominacion") or pgoum.get("ordenanza") or ""
+        # Preferir la denominación oficial completa para el lookup en el Compendio
+        zona = (pgoum.get("zona_denominacion")
+                or pgoum.get("zona_nombre")
+                or pgoum.get("ordenanza") or "")
         if not zona:
             return ""
         return query_compendio(

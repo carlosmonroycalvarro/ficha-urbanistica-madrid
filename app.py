@@ -131,13 +131,14 @@ def _run_query(lat: float, lon: float, address_label: str):
 
 # ── Session state inicial ──────────────────────────────────────────────────
 for key, default in [
-    ("view", "search"),        # "search" | "result"
+    ("view", "search"),
     ("historial", []),
     ("generar_cedula", True),
     ("map_style", "Satélite (Google)"),
     ("clicked_lat", None),
     ("clicked_lon", None),
     ("clicked_address", None),
+    ("last_auto_click", None),   # evita re-disparar la misma consulta
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -180,19 +181,20 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════
 if st.session_state.view == "search":
     st.title("🏙️ Ficha Urbanística Madrid")
-    st.caption("Escribe una dirección o haz clic directamente sobre la parcela en el mapa.")
 
     # Formulario de texto
     with st.form("form_busqueda", clear_on_submit=False):
         col_txt, col_btn = st.columns([5, 1])
         with col_txt:
-            direccion_texto = st.text_input("Dirección", placeholder="Ej: Gran Via 28, Madrid",
-                                            label_visibility="collapsed")
+            direccion_texto = st.text_input(
+                "Dirección", placeholder="Gran Vía 28, Madrid — o haz clic en el mapa",
+                label_visibility="collapsed",
+            )
         with col_btn:
             buscar = st.form_submit_button("Buscar", type="primary", use_container_width=True)
 
     if buscar and direccion_texto.strip():
-        with st.spinner("Geocodificando..."):
+        with st.spinner("Buscando..."):
             try:
                 geo = geocode_address(direccion_texto.strip())
                 _run_query(geo["lat"], geo["lon"], direccion_texto.strip())
@@ -200,45 +202,38 @@ if st.session_state.view == "search":
             except Exception as exc:
                 st.error(f"No se encontró la dirección: {exc}")
 
-    # Mapa interactivo — clic para seleccionar punto
-    st.markdown("**O selecciona directamente en el mapa:**")
+    # ── Mapa interactivo — clic directo, sin botón extra ─────────────────
     map_center_lat = st.session_state.get("result_lat", 40.4168)
     map_center_lon = st.session_state.get("result_lon", -3.7038)
-    m = _build_map(map_center_lat, map_center_lon, zoom=13, style=st.session_state.map_style)
-    # Mostrar punto seleccionado provisionalmente mientras no se ha enviado la consulta
+    m = _build_map(map_center_lat, map_center_lon, zoom=14, style=st.session_state.map_style)
+
+    # Marcar el último punto clicado (antes de lanzar la consulta)
     if st.session_state.clicked_lat:
         folium.CircleMarker(
             location=[st.session_state.clicked_lat, st.session_state.clicked_lon],
-            radius=10,
-            color="#FF4500",
-            fill=True,
-            fill_color="#FF4500",
-            fill_opacity=0.6,
-            popup=st.session_state.clicked_address or "Punto seleccionado",
+            radius=8, color="#FF4500", fill=True, fill_color="#FF4500", fill_opacity=0.7,
         ).add_to(m)
-    map_data = st_folium(m, height=450, use_container_width=True, returned_objects=["last_clicked"])
 
-    # Procesar clic en el mapa
+    map_data = st_folium(m, height=500, use_container_width=True,
+                         returned_objects=["last_clicked"])
+
+    # Auto-lanzar consulta cuando hay un clic nuevo (sin botón intermedio)
     clicked = map_data.get("last_clicked")
     if clicked:
-        clat, clon = clicked["lat"], clicked["lng"]
-        if (clat, clon) != (st.session_state.clicked_lat, st.session_state.clicked_lon):
+        clat = round(clicked["lat"], 6)
+        clon = round(clicked["lng"], 6)
+        click_key = (clat, clon)
+        if click_key != st.session_state.last_auto_click:
+            st.session_state.last_auto_click = click_key
             st.session_state.clicked_lat = clat
             st.session_state.clicked_lon = clon
             try:
                 rev = reverse_geocode(clat, clon)
-                st.session_state.clicked_address = rev["address_short"] or rev["display_name"]
+                addr = rev.get("address_short") or rev.get("display_name") or f"{clat},{clon}"
             except Exception:
-                st.session_state.clicked_address = f"Punto ({clat:.5f}, {clon:.5f})"
-
-    if st.session_state.clicked_lat:
-        st.info(f"📍 Punto seleccionado: **{st.session_state.clicked_address}**")
-        if st.button("Consultar este punto", type="primary", use_container_width=True):
-            _run_query(
-                st.session_state.clicked_lat,
-                st.session_state.clicked_lon,
-                st.session_state.clicked_address,
-            )
+                addr = f"Punto ({clat:.5f}, {clon:.5f})"
+            st.session_state.clicked_address = addr
+            _run_query(clat, clon, addr)
             st.session_state.clicked_lat = None
             st.session_state.clicked_lon = None
             st.rerun()
@@ -298,30 +293,58 @@ elif st.session_state.view == "result":
     # ── Datos en dos columnas + mapa ──────────────────────────────────
     col_datos, col_mapa = st.columns([2, 3])
 
+    def _nd(val) -> str:
+        return str(val) if val and str(val) not in ("None", "null", "") else "—"
+
+    def _table(rows: list[tuple[str, str]]) -> str:
+        cells = "".join(
+            f"<tr><td style='color:#555;font-size:11px;padding:3px 8px 3px 0;"
+            f"white-space:nowrap'>{lbl}</td>"
+            f"<td style='font-size:12px;font-weight:600;padding:3px 0'>{val}</td></tr>"
+            for lbl, val in rows
+        )
+        return f"<table style='border-collapse:collapse;width:100%'>{cells}</table>"
+
     with col_datos:
-        st.subheader(f"📍 {address}")
-        st.markdown("**Datos Catastrales**")
-        st.metric("Referencia catastral", cat.get("refcat") or "N/D")
-        st.caption(cat.get("address") or "")
+        st.markdown(f"#### 📍 {address}")
 
-        c1, c2 = st.columns(2)
-        c1.metric("Sup. parcela", f"{cat.get('superficie_parcela') or 'N/D'} m²")
-        c2.metric("Sup. construida", f"{cat.get('superficie_construida') or 'N/D'} m²")
-        c3, c4 = st.columns(2)
-        c3.metric("Uso", cat.get("uso") or "N/D")
-        c4.metric("Año construc.", cat.get("anio_construccion") or "N/D")
+        # Catastro
+        st.markdown(
+            "<span style='font-size:11px;font-weight:700;letter-spacing:.06em;"
+            "text-transform:uppercase;color:#005aaa'>Datos Catastrales</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(_table([
+            ("Referencia catastral", _nd(cat.get("refcat"))),
+            ("Dirección catastral",  _nd(cat.get("address"))),
+            ("Sup. parcela",         f"{_nd(cat.get('superficie_parcela'))} m²"),
+            ("Sup. construida",      f"{_nd(cat.get('superficie_construida'))} m²"),
+            ("Uso catastral",        _nd(cat.get("uso"))),
+            ("Año construcción",     _nd(cat.get("anio_construccion"))),
+        ]), unsafe_allow_html=True)
 
-        st.divider()
-        st.markdown("**Planeamiento PGOUM**")
-        st.metric("Ordenanza / Zona", pgoum.get("ordenanza") or "N/D")
-        c5, c6 = st.columns(2)
-        c5.metric("Zona", pgoum.get("zona_etiqueta") or "N/D")
-        c6.metric("Núm. ordenanza", pgoum.get("numord") or "N/D")
-        c7, c8 = st.columns(2)
-        c7.metric("Cond. edificación", str(pgoum.get("cond_edif") or "N/D"))
-        c8.metric("Código NPG", pgoum.get("crs_npg") or "N/D")
+        st.markdown("<hr style='margin:8px 0'>", unsafe_allow_html=True)
+
+        # PGOUM
+        st.markdown(
+            "<span style='font-size:11px;font-weight:700;letter-spacing:.06em;"
+            "text-transform:uppercase;color:#005aaa'>Planeamiento PGOUM</span>",
+            unsafe_allow_html=True,
+        )
+        zona_completa = _nd(pgoum.get("zona_denominacion") or pgoum.get("ordenanza"))
+        grado = _nd(pgoum.get("zona_grado"))
+        pgoum_rows = [
+            ("Norma zonal",        zona_completa),
+            ("Zona / Etiqueta",    _nd(pgoum.get("zona_etiqueta"))),
+            ("Grado",              grado),
+            ("Núm. ordenanza",     _nd(pgoum.get("numord"))),
+            ("Cond. edificación",  _nd(pgoum.get("cond_edif"))),
+            ("Coef. Z",            _nd(pgoum.get("coef_z"))),
+            ("Código NPG",         _nd(pgoum.get("crs_npg"))),
+        ]
         if pgoum.get("denominacion_dotacion"):
-            st.caption(f"Dotación: {pgoum['denominacion_dotacion']}")
+            pgoum_rows.append(("Dotación", _nd(pgoum.get("denominacion_dotacion"))))
+        st.markdown(_table(pgoum_rows), unsafe_allow_html=True)
 
     with col_mapa:
         polygon = cat.get("parcel_polygon")

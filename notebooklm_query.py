@@ -72,10 +72,15 @@ def query_uso_definition(uso_str: str) -> str:
 
 
 def _zona_number(zona_str: str) -> str:
-    """Extrae el número de zona de una cadena como 'ZONA 1 GRADO 1ª'."""
+    """Extrae el número de zona de una cadena como 'ZONA 1 GRADO 1ª' o '4.1'."""
     import re
+    # Formato canónico "ZONA N ..."
     m = re.search(r"ZONA\s+(\d+)", zona_str.upper())
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+    # Formato etiqueta "4.1" o "4"
+    m2 = re.match(r"^(\d+)", zona_str.strip())
+    return m2.group(1) if m2 else ""
 
 
 def query_compendio(zona: str, numord: str = "", cond_edif: str = "") -> str:
