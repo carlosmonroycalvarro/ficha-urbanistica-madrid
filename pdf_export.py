@@ -7,6 +7,30 @@ Respeta el modelo normalizado del Ayuntamiento de Madrid.
 from datetime import date
 from fpdf import FPDF
 
+_CHAR_MAP = str.maketrans({
+    "—": "-",   # em dash —
+    "–": "-",   # en dash –
+    "‘": "'",   # left single quote '
+    "’": "'",   # right single quote '
+    "“": '"',   # left double quote "
+    "”": '"',   # right double quote "
+    "•": "-",   # bullet •
+    "…": "...", # ellipsis …
+    "²": "2",   # superscript 2 ²
+    "³": "3",   # superscript 3 ³
+    "º": "o",   # ordinal masculine º
+    "ª": "a",   # ordinal feminine ª
+    "€": "EUR", # euro sign €
+})
+
+
+def _s(text) -> str:
+    """Sanitiza texto para Helvetica (Latin-1): sustituye caracteres fuera de rango."""
+    if not text:
+        return ""
+    text = str(text).translate(_CHAR_MAP)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
 
 class CedulaPDF(FPDF):
 
@@ -51,7 +75,7 @@ class CedulaPDF(FPDF):
         self.set_fill_color(0, 90, 170)
         self.set_text_color(255, 255, 255)
         self.set_font("Helvetica", "B", 9)
-        self.cell(0, 7, f"  {roman}. {title.upper()}", fill=True,
+        self.cell(0, 7, _s(f"  {roman}. {title.upper()}"), fill=True,
                   new_x="LMARGIN", new_y="NEXT")
         self.set_text_color(0, 0, 0)
         self.ln(1)
@@ -60,10 +84,10 @@ class CedulaPDF(FPDF):
         self.set_font("Helvetica", "B", 8)
         self.set_x(12)
         self.set_fill_color(235, 242, 255)
-        self.cell(col_w, 6, label, fill=True, border=1)
+        self.cell(col_w, 6, _s(label), fill=True, border=1)
         self.set_font("Helvetica", "", 8)
         self.set_fill_color(255, 255, 255)
-        val = str(value) if value and str(value) not in ("None", "null") \
+        val = _s(value) if value and str(value) not in ("None", "null") \
             else "No consta en la documentacion consultada."
         self.multi_cell(0, 6, val, fill=True, border=1)
 
@@ -72,10 +96,10 @@ class CedulaPDF(FPDF):
         for label, val in [(label1, val1), (label2, val2)]:
             self.set_font("Helvetica", "B", 8)
             self.set_fill_color(235, 242, 255)
-            self.cell(col_w, 6, label, fill=True, border=1)
+            self.cell(col_w, 6, _s(label), fill=True, border=1)
             self.set_font("Helvetica", "", 8)
             self.set_fill_color(255, 255, 255)
-            v = str(val) if val and str(val) not in ("None", "null") \
+            v = _s(val) if val and str(val) not in ("None", "null") \
                 else "No consta."
             self.cell(half - col_w, 6, v, fill=True, border=1)
         self.ln()
@@ -86,7 +110,7 @@ class CedulaPDF(FPDF):
         self.set_font("Helvetica", "I", 8)
         self.set_fill_color(250, 250, 240)
         self.set_x(12)
-        self.multi_cell(186, 5, text.strip(), fill=True, border=1)
+        self.multi_cell(186, 5, _s(text.strip()), fill=True, border=1)
 
     def legal_note(self):
         self.ln(4)
@@ -95,12 +119,12 @@ class CedulaPDF(FPDF):
         self.set_x(12)
         self.multi_cell(
             186, 4,
-            "Este documento tiene caracter exclusivamente informativo y ha sido "
-            "generado de forma automatizada a partir de los servicios cartograficos "
-            "del Catastro, del PGOUM y del Compendio de las Normas Urbanisticas "
-            "(ed. septiembre 2025). Para trámites oficiales, solicite cedula urbanistica "
-            "en la Oficina de Informacion Urbanistica del Ayuntamiento de Madrid "
-            "(C/ Guatemala, 13).",
+            _s("Este documento tiene caracter exclusivamente informativo y ha sido "
+               "generado de forma automatizada a partir de los servicios cartograficos "
+               "del Catastro, del PGOUM y del Compendio de las Normas Urbanisticas "
+               "(ed. septiembre 2025). Para tramites oficiales, solicite cedula urbanistica "
+               "en la Oficina de Informacion Urbanistica del Ayuntamiento de Madrid "
+               "(C/ Guatemala, 13)."),
             border=0,
         )
         self.set_text_color(0, 0, 0)
@@ -122,18 +146,18 @@ def generate_pdf(cat: dict, pgoum: dict, cedula_md: str,
     vals = _parse_markdown_table(cedula_md) if cedula_md else {}
 
     def v(key_md: str, key_dict=None, suffix=""):
-        """Obtiene valor del Markdown o del dict de fallback."""
+        """Obtiene valor del Markdown o del dict de fallback, sanitizado para Latin-1."""
         val = vals.get(key_md, "")
         if not val and key_dict:
             raw = cat.get(key_dict) or pgoum.get(key_dict, "")
             val = str(raw) if raw and str(raw) != "None" else ""
-        return (val + suffix).strip() if val else ""
+        return _s((val + suffix).strip()) if val else ""
 
     # ── Cabecera del documento ──────────────────────────────────────────
     pdf.set_font("Helvetica", "", 8)
     pdf.set_x(12)
-    pdf.cell(80, 5, f"Direccion consultada: {address}")
-    pdf.cell(0, 5, f"Fecha: {date.today().strftime('%d/%m/%Y')}",
+    pdf.cell(80, 5, _s(f"Direccion consultada: {address}"))
+    pdf.cell(0, 5, _s(f"Fecha: {date.today().strftime('%d/%m/%Y')}"),
              new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
 
